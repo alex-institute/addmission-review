@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>التحقق من ترشيح الطلاب</title>
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Changa:wght@400;600;700&display=swap" rel="stylesheet">
+  
+  <style>
+    body {
+      font-family: 'Changa', sans-serif;
+      text-align: center;
+      background-color: #f4f4f9;
+      margin: 0;
+      padding: 15px;
+      color: #333;
+    }
+
+    .container {
+      max-width: 480px;
+      margin: 0 auto;
+      background: #ffffff;
+      padding: 20px;
+      border-radius: 16px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+      position: relative;
+    }
+
+    .sync-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: #e9ecef;
+      padding: 8px 12px;
+      border-radius: 8px;
+      margin-bottom: 12px;
+      font-size: 14px;
+      font-weight: 600;
+    }
+
+    .btn-sync {
+      background: #0d6efd;
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-family: 'Changa', sans-serif;
+    }
+
+    h2 { margin-top: 0; font-weight: 700; }
+
+    #reader {
+      width: 100%;
+      margin: 15px 0;
+      border: 2px solid #333;
+      border-radius: 12px;
+      overflow: hidden;
+      background: #000;
+    }
+
+    #result-box {
+      margin: 15px 0;
+      padding: 20px;
+      font-size: 28px;
+      font-weight: 700;
+      border-radius: 12px;
+      display: none;
+    }
+    
+    .found { 
+      background-color: #d4edda; 
+      color: #155724; 
+      border: 2px solid #c3e6cb; 
+    }
+    
+    .not-found { 
+      background-color: #f8d7da; 
+      color: #721c24; 
+      border: 2px solid #f5c6cb; 
+    }
+  </style>
+
+  <script src="https://unpkg.com/html5-qrcode"></script>
+</head>
+<body>
+
+  <div class="container">
+    <div class="sync-bar">
+      <span id="sync-status">جاري تحضير قاعدة البيانات...</span>
+      <button class="btn-sync" onclick="loadDatabase()">تحديث</button>
+    </div>
+
+    <h2>التحقق من حالة الترشيح</h2>
+    <div id="reader"></div>
+    <div id="result-box"></div>
+  </div>
+
+  <script>
+    // ضع رابط الـ Web App الخاص بالمشروع المنفصل الجديد هنا
+    const SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxyJeMyHHNqXMZqh5h3d9_LPHD3bFqd-i0XBSEK_m6aNVIeT2rD35hWHF1lCgyYwmPZDg/exec";
+
+    let html5QrcodeScanner;
+    let isProcessing = false;
+    let studentsDB = {}; 
+
+    function parseArabicNumbers(str) {
+      if (str === null || str === undefined) return '';
+      return String(str).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d));
+    }
+
+    function triggerVibrate() {
+      try {
+        if ("vibrate" in navigator) navigator.vibrate(200);
+      } catch (e) {}
+    }
+
+    function playBeep(type) {
+      try {
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        if (type === 'found') {
+          let osc = audioCtx.createOscillator();
+          osc.type = 'sine';
+          osc.frequency.setValueAtTime(880, audioCtx.currentTime);
+          osc.connect(audioCtx.destination);
+          osc.start();
+          osc.stop(audioCtx.currentTime + 0.15);
+        } else {
+          const now = audioCtx.currentTime;
+          const beepDuration = 0.08;
+          const pauseDuration = 0.05;
+          const freq = 400;
+
+          for (let i = 0; i < 4; i++) {
+            let osc = audioCtx.createOscillator();
+            osc.type = 'sine';
+            osc.frequency.setValueAtTime(freq, now + i * (beepDuration + pauseDuration));
+            osc.connect(audioCtx.destination);
+            let startTime = now + i * (beepDuration + pauseDuration);
+            let stopTime = startTime + beepDuration;
+            osc.start(startTime);
+            osc.stop(stopTime);
+          }
+        }
+      } catch (e) {}
+    }
+
+    function loadDatabase() {
+      const statusLbl = document.getElementById('sync-status');
+      statusLbl.innerText = 'جاري التحميل...';
+
+      fetch(SCRIPT_URL)
+        .then(res => res.json())
+        .then(res => {
+          if (res.status === "success") {
+            studentsDB = res.students;
+            const count = Object.keys(studentsDB).length;
+            statusLbl.innerText = `تم تحميل ${count} طالب جاهز`;
+          } else {
+            statusLbl.innerText = 'خطأ في التحميل!';
+          }
+        })
+        .catch(() => {
+          statusLbl.innerText = 'فشل الاتصال بالشيت!';
+        });
+    }
+
+    function initScanner() {
+      html5QrcodeScanner = new Html5QrcodeScanner(
+        "reader", 
+        { 
+          fps: 25,
+          qrbox: { width: 250, height: 250 },
+          facingMode: "environment"
+        },
+        false
+      );
+      html5QrcodeScanner.render(onScanSuccess);
+    }
+
+    function onScanSuccess(decodedText) {
+      if (isProcessing) return;
+      isProcessing = true;
+
+      triggerVibrate();
+
+      const resultBox = document.getElementById('result-box');
+      resultBox.style.display = 'block';
+
+      let seatNo = parseArabicNumbers(decodedText).trim().toLowerCase();
+
+      if (seatNo.includes(',')) {
+        seatNo = seatNo.split(',')[0].trim();
+      }
+
+      if (studentsDB[seatNo]) {
+        resultBox.className = 'found';
+        resultBox.innerText = 'مرشح';
+        playBeep('found');
+      } else {
+        resultBox.className = 'not-found';
+        resultBox.innerText = 'غير مرشح';
+        playBeep('not_found');
+      }
+
+      setTimeout(() => { 
+        resultBox.style.display = 'none';
+        isProcessing = false; 
+      }, 1500);
+    }
+
+    window.onload = function() {
+      loadDatabase();
+      initScanner();
+    };
+  </script>
+</body>
+</html>
